@@ -122,6 +122,9 @@ export class TuneCampChatClient {
     this.closedByUs = false;
     this.setStatus('connecting');
 
+    // Fetch initial chat history in background
+    this.fetchHistory();
+
     const wsUrl = this.buildWsUrl();
     try {
       this.ws = new WebSocket(wsUrl);
@@ -234,6 +237,46 @@ export class TuneCampChatClient {
     }
     this.setStatus('offline');
     this.setPeersList([]);
+  }
+
+  public async fetchHistory(): Promise<ChatMessage[]> {
+    if (!this.serverUrl) return [];
+    try {
+      const headers: Record<string, string> = {};
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      const res = await fetch(`${this.serverUrl}/api/chat/history`, { headers });
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const rawHistory: any[] = Array.isArray(data.messages)
+          ? data.messages
+          : Array.isArray(data)
+          ? data
+          : [];
+        const formatted: ChatMessage[] = rawHistory.map((m: any) => ({
+          from: m.username || m.from || 'Lobby',
+          text: m.message || m.text || '',
+          ts: m.created_at || m.ts || Date.now(),
+          lobby: true,
+          instance: m.instance || this.instanceName
+        }));
+
+        if (formatted.length > 0) {
+          const existingTs = new Set(this.messages.map((m) => m.ts));
+          const newItems = formatted.filter((m) => !existingTs.has(m.ts));
+          if (newItems.length > 0) {
+            this.messages = [...newItems, ...this.messages].slice(-200);
+            if (this.messages.length > 0) {
+              const lastMsg = this.messages[this.messages.length - 1];
+              this.messageListeners.forEach((fn) => fn(lastMsg));
+            }
+          }
+        }
+        return formatted;
+      }
+    } catch {
+      /* ignore */
+    }
+    return [];
   }
 
   public async fetchPeers(): Promise<PeerInfo[]> {
