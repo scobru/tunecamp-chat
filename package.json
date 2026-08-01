@@ -1,0 +1,27 @@
+{
+  "name": "@tunecamp/chat",
+  "version": "1.0.0",
+  "description": "Essential, lightweight E2EE chat client and React hook for the TuneCamp ecosystem.",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.10"
+  }
+}
