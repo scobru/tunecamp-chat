@@ -1,8 +1,33 @@
 import nacl from 'tweetnacl';
-import naclUtil from 'tweetnacl-util';
 import type { KeyPair } from './types.js';
 
-const { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } = naclUtil;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8');
+
+export function encodeBase64(arr: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < arr.length; i++) {
+    binary += String.fromCharCode(arr[i]);
+  }
+  return btoa(binary);
+}
+
+export function decodeBase64(str: string): Uint8Array {
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export function encodeUTF8(arr: Uint8Array): string {
+  return decoder.decode(arr);
+}
+
+export function decodeUTF8(str: string): Uint8Array {
+  return encoder.encode(str);
+}
 
 export function generateKeyPair(): KeyPair {
   const kp = nacl.box.keyPair();
