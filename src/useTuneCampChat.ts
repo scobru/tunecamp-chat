@@ -84,6 +84,14 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
       )
     : messages.filter((m) => m.lobby !== false);
 
+  const connect = useCallback(() => {
+    clientRef.current?.connect();
+  }, []);
+
+  const disconnect = useCallback(() => {
+    clientRef.current?.disconnect();
+  }, []);
+
   return {
     messages: visibleMessages,
     allMessages: messages,
@@ -96,6 +104,9 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
     sendMessage,
     sendAdminAction,
     formatUser,
+    connect,
+    disconnect,
     client: clientRef.current
   };
 }
+
