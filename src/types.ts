@@ -35,6 +35,16 @@ export type MessageHandler = (msg: ChatMessage) => void;
 export type PeersHandler = (peers: PeerInfo[]) => void;
 export type StatusHandler = (status: ChatStatus) => void;
 
+export interface RtcSignalMessage {
+  from: string;
+  fromSessionId?: string;
+  to?: string;
+  toSessionId?: string;
+  signal: any;
+}
+
+export type RtcSignalHandler = (msg: RtcSignalMessage) => void;
+
 /**
  * Utility to extract a clean instance name from a URL or hostname.
  * Example: 'https://sudorecords.tunecamp.net' -> 'sudorecords'

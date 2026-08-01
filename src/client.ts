@@ -8,7 +8,8 @@ import {
   type KeyPair,
   type MessageHandler,
   type PeersHandler,
-  type StatusHandler
+  type StatusHandler,
+  type RtcSignalHandler
 } from './types.js';
 
 export class TuneCampChatClient {
@@ -27,6 +28,7 @@ export class TuneCampChatClient {
   private messageListeners: Set<MessageHandler> = new Set();
   private peersListeners: Set<PeersHandler> = new Set();
   private statusListeners: Set<StatusHandler> = new Set();
+  private rtcSignalListeners: Set<RtcSignalHandler> = new Set();
 
   private reconnectTimer: any = null;
   private pollTimer: any = null;
@@ -92,6 +94,23 @@ export class TuneCampChatClient {
   public onStatus(handler: StatusHandler): () => void {
     this.statusListeners.add(handler);
     return () => this.statusListeners.delete(handler);
+  }
+
+  public onRtcSignal(handler: RtcSignalHandler): () => void {
+    this.rtcSignalListeners.add(handler);
+    return () => this.rtcSignalListeners.delete(handler);
+  }
+
+  public sendRtcSignal(to: string, signal: any): boolean {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.sendJson({
+        type: 'rtc_signal',
+        to,
+        signal
+      });
+      return true;
+    }
+    return false;
   }
 
   private setStatus(newStatus: ChatStatus) {
@@ -176,6 +195,15 @@ export class TuneCampChatClient {
             lobby: true,
             system: true
           });
+        } else if (msg.type === 'rtc_signal') {
+          const signalMsg = {
+            from: msg.from,
+            fromSessionId: msg.fromSessionId,
+            to: msg.to,
+            toSessionId: msg.toSessionId,
+            signal: msg.signal
+          };
+          this.rtcSignalListeners.forEach((fn) => fn(signalMsg));
         } else if (msg.type === 'chat') {
           const msgInstance = msg.instance || this.instanceName;
           if (msg.lobby) {
