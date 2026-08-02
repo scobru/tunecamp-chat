@@ -18,8 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@akaoio/zen": "github:scobru/zen",
-    "tweetnacl": "^1.0.3"
+    "@akaoio/zen": "github:scobru/zen"
   },
   "peerDependencies": {
     "react": ">=18.0.0"
