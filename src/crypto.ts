@@ -1,4 +1,4 @@
-import Zen from "@akaoio/zen";
+import Zen from "zen";
 import type { KeyPair } from "./types.js";
 
 const SEA = Zen.SEA as any;

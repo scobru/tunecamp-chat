@@ -1,4 +1,4 @@
-declare module "@akaoio/zen" {
+declare module "zen" {
 	export default class Zen {
 		static SEA: any;
 }

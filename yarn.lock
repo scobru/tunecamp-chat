@@ -2,10 +2,6 @@
 # yarn lockfile v1
 
 
-"@akaoio/zen@github:scobru/zen":
-  version "1.0.38"
-  resolved "git+ssh://git@github.com/scobru/zen.git#95f7cecddbabc66bbf7846364e93969d388cbf17"
-
 "@emnapi/core@^1.7.1 || ^2.0.0-alpha.3", "@emnapi/core@2.0.0-alpha.3":
   version "2.0.0-alpha.3"
   resolved "https://registry.npmjs.org/@emnapi/core/-/core-2.0.0-alpha.3.tgz"
@@ -413,3 +409,7 @@ why-is-node-running@^2.3.0:
   dependencies:
     siginfo "^2.0.0"
     stackback "0.0.2"
+
+"zen@github:scobru/zen":
+  version "1.0.38"
+  resolved "git+ssh://git@github.com/scobru/zen.git#95f7cecddbabc66bbf7846364e93969d388cbf17"
