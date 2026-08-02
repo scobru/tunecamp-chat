@@ -26,3 +26,5 @@ declare module "zen/src/pair.js" {
   function pair(): Promise<ZenKeyPair>;
   export default pair;
 }
+
+declare module "zen";
