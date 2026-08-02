@@ -1,7 +1,7 @@
 import Zen from "@akaoio/zen";
 import type { KeyPair } from "./types.js";
 
-const SEA = Zen.SEA;
+const SEA = Zen.SEA as any;
 
 // ponytail: KDF with Web Crypto API — no extra dependencies, browser-native PBKDF2.
 // Weak passwords get computationally hardened before deriving the SEA identity.
