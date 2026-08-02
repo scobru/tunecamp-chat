@@ -95,6 +95,34 @@ export class TuneCampChatClient {
 		return this.isAdmin;
 	}
 
+	private async ensurePeerKey(
+		username: string,
+		instance: string,
+	): Promise<string | undefined> {
+		const cacheKey = `${username}@${instance}`;
+		const cached = this.peerKeys.get(cacheKey);
+		if (cached) return cached;
+
+		try {
+			const headers: Record<string, string> = {};
+			if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+			const res = await fetch(
+				`${this.serverUrl}/api/chat/pubkey/${encodeURIComponent(username)}?instance=${encodeURIComponent(instance)}`,
+				{ headers },
+			);
+			if (res.ok) {
+				const data = (await res.json()) as any;
+				if (data.pubkey) {
+					this.peerKeys.set(cacheKey, data.pubkey);
+					return data.pubkey;
+				}
+			}
+		} catch {
+			/* ignore */
+		}
+		return undefined;
+	}
+
 	public onMessage(handler: MessageHandler): () => void {
 		this.messageListeners.add(handler);
 		return () => this.messageListeners.delete(handler);
@@ -374,10 +402,22 @@ export class TuneCampChatClient {
 		let isE2e = false;
 
 		if (to) {
-			const recipientKey = this.peerKeys.get(to);
-			if (recipientKey) {
-				payload = await encryptFor(cleanText, recipientKey, this.keyPair);
-				isE2e = true;
+			if (to.includes("@")) {
+				const [remoteUsername, remoteInstance] = to.split("@");
+				const recipientKey = await this.ensurePeerKey(
+					remoteUsername,
+					remoteInstance,
+				);
+				if (recipientKey) {
+					payload = await encryptFor(cleanText, recipientKey, this.keyPair);
+					isE2e = true;
+				}
+			} else {
+				const recipientKey = this.peerKeys.get(to);
+				if (recipientKey) {
+					payload = await encryptFor(cleanText, recipientKey, this.keyPair);
+					isE2e = true;
+				}
 			}
 		}
 
