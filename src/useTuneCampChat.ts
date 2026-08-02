@@ -25,6 +25,9 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
     if (!options.serverUrl) return;
 
     const client = new TuneCampChatClient(options.serverUrl, options.token, options.instanceName);
+    if (options.keyPair) {
+      client.initKeyPair(options.keyPair);
+    }
     clientRef.current = client;
 
     const unsubStatus = client.onStatus((s) => {

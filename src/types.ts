@@ -1,6 +1,8 @@
 export interface KeyPair {
-  publicKey: string;
-  secretKey: string;
+  pub: string;
+  priv: string;
+  epub: string;
+  epriv: string;
 }
 
 export interface PeerInfo {
@@ -29,6 +31,7 @@ export interface ChatClientOptions {
   username?: string;
   instanceName?: string;
   autoConnect?: boolean;
+  keyPair?: KeyPair;
 }
 
 export type MessageHandler = (msg: ChatMessage) => void;

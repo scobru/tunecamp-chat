@@ -1,69 +1,104 @@
-import nacl from 'tweetnacl';
-import type { KeyPair } from './types.js';
+import Zen from "@scobru/zen";
+import type { KeyPair } from "./types.js";
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8');
+const SEA = Zen.SEA;
 
-export function encodeBase64(arr: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < arr.length; i++) {
-    binary += String.fromCharCode(arr[i]);
-  }
-  return btoa(binary);
+// ponytail: KDF with Web Crypto API — no extra dependencies, browser-native PBKDF2.
+// Weak passwords get computationally hardened before deriving the SEA identity.
+async function kdf(password: string, salt: string): Promise<ArrayBuffer> {
+	const enc = new TextEncoder();
+	const keyMaterial = await crypto.subtle.importKey(
+		"raw",
+		enc.encode(password),
+		{ name: "PBKDF2" },
+		false,
+		["deriveBits"],
+	);
+	return crypto.subtle.deriveBits(
+		{
+			name: "PBKDF2",
+			salt: enc.encode(salt),
+			iterations: 100_000,
+			hash: "SHA-256",
+		},
+		keyMaterial,
+		256,
+	);
 }
 
-export function decodeBase64(str: string): Uint8Array {
-  const binary = atob(str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+export async function generateKeyPair(): Promise<KeyPair> {
+	const pair = await SEA.pair();
+	return pair as KeyPair;
 }
 
-export function encodeUTF8(arr: Uint8Array): string {
-  return decoder.decode(arr);
+export async function deriveKeyPairFromPassword(
+	username: string,
+	password: string,
+): Promise<KeyPair> {
+	const derived = await kdf(password, username);
+	const seedHex = Array.from(new Uint8Array(derived))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+	const pair = await SEA.pair({ seed: seedHex });
+	return pair as KeyPair;
 }
 
-export function decodeUTF8(str: string): Uint8Array {
-  return encoder.encode(str);
+// ponytail: UNSAFE — deriving a private key from a public zenPubKey is insecure.
+// Anyone can recompute the same pair, enabling full impersonation.
+// Remove this stub when FASE 2 introduces a real non-public secret source.
+export async function deriveKeyPairFromZenPubKey(
+	_zenPubKey: string,
+): Promise<KeyPair> {
+	throw new Error("deriveKeyPairFromZenPubKey is not implemented safely yet");
 }
 
-export function generateKeyPair(): KeyPair {
-  const kp = nacl.box.keyPair();
-  return {
-    publicKey: encodeBase64(kp.publicKey),
-    secretKey: encodeBase64(kp.secretKey)
-  };
+export async function encryptFor(
+	text: string,
+	recipientEpub: string,
+	myPair: KeyPair,
+): Promise<string> {
+	// SEA.secret derives a shared secret using ECDH
+	const secret = await SEA.secret(recipientEpub, myPair);
+	// SEA.encrypt encrypts the message with the shared secret
+	const encrypted = await SEA.encrypt(text, secret);
+	return encrypted;
 }
 
-export function encryptFor(text: string, recipientPublicKeyB64: string, mySecretKeyB64: string): string {
-  const nonce = nacl.randomBytes(nacl.box.nonceLength);
-  const box = nacl.box(
-    decodeUTF8(text),
-    nonce,
-    decodeBase64(recipientPublicKeyB64),
-    decodeBase64(mySecretKeyB64)
-  );
-  const full = new Uint8Array(nonce.length + box.length);
-  full.set(nonce);
-  full.set(box, nonce.length);
-  return encodeBase64(full);
+export async function decryptFrom(
+	cipherText: string,
+	senderEpub: string,
+	myPair: KeyPair,
+): Promise<string | null> {
+	try {
+		const secret = await SEA.secret(senderEpub, myPair);
+		const decrypted = await SEA.decrypt(cipherText, secret);
+		return typeof decrypted === "string" ? decrypted : null;
+	} catch {
+		return null;
+	}
 }
 
-export function decryptFrom(cipherB64: string, senderPublicKeyB64: string, mySecretKeyB64: string): string | null {
-  try {
-    const full = decodeBase64(cipherB64);
-    const nonce = full.slice(0, nacl.box.nonceLength);
-    const box = full.slice(nacl.box.nonceLength);
-    const opened = nacl.box.open(
-      box,
-      nonce,
-      decodeBase64(senderPublicKeyB64),
-      decodeBase64(mySecretKeyB64)
-    );
-    return opened ? encodeUTF8(opened) : null;
-  } catch {
-    return null;
-  }
+/**
+ * Trustless E2EE Vault Functions
+ */
+
+export async function encryptPairVault(
+	pair: KeyPair,
+	passwordStr: string,
+): Promise<string> {
+	// Encrypt the JSON-stringified pair using the user's plaintext password
+	const encrypted = await SEA.encrypt(pair, passwordStr);
+	return encrypted;
+}
+
+export async function decryptPairVault(
+	encryptedBlob: string,
+	passwordStr: string,
+): Promise<KeyPair | null> {
+	try {
+		const decrypted = await SEA.decrypt(encryptedBlob, passwordStr);
+		return decrypted ? (decrypted as KeyPair) : null;
+	} catch {
+		return null;
+	}
 }
