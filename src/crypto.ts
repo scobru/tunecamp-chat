@@ -1,8 +1,6 @@
 import Zen from "zen";
 import type { KeyPair } from "./types.js";
 
-const SEA = Zen.SEA as any;
-
 // ponytail: KDF with Web Crypto API — no extra dependencies, browser-native PBKDF2.
 // Weak passwords get computationally hardened before deriving the SEA identity.
 async function kdf(password: string, salt: string): Promise<ArrayBuffer> {
@@ -27,7 +25,7 @@ async function kdf(password: string, salt: string): Promise<ArrayBuffer> {
 }
 
 export async function generateKeyPair(): Promise<KeyPair> {
-	const pair = await SEA.pair();
+	const pair = await Zen.pair();
 	return pair as KeyPair;
 }
 
@@ -39,7 +37,7 @@ export async function deriveKeyPairFromPassword(
 	const seedHex = Array.from(new Uint8Array(derived))
 		.map((b) => b.toString(16).padStart(2, "0"))
 		.join("");
-	const pair = await SEA.pair({ seed: seedHex });
+	const pair = await Zen.pair({ seed: seedHex });
 	return pair as KeyPair;
 }
 
@@ -54,24 +52,24 @@ export async function deriveKeyPairFromZenPubKey(
 
 export async function encryptFor(
 	text: string,
-	recipientEpub: string,
+	recipientPub: string,
 	myPair: KeyPair,
 ): Promise<string> {
-	// SEA.secret derives a shared secret using ECDH
-	const secret = await SEA.secret(recipientEpub, myPair);
-	// SEA.encrypt encrypts the message with the shared secret
-	const encrypted = await SEA.encrypt(text, secret);
+	// Zen.secret derives a shared secret using ECDH
+	const secret = await Zen.secret(recipientPub, myPair);
+	// Zen.encrypt encrypts the message with the shared secret
+	const encrypted = await Zen.encrypt(text, secret);
 	return encrypted;
 }
 
 export async function decryptFrom(
 	cipherText: string,
-	senderEpub: string,
+	senderPub: string,
 	myPair: KeyPair,
 ): Promise<string | null> {
 	try {
-		const secret = await SEA.secret(senderEpub, myPair);
-		const decrypted = await SEA.decrypt(cipherText, secret);
+		const secret = await Zen.secret(senderPub, myPair);
+		const decrypted = await Zen.decrypt(cipherText, secret);
 		return typeof decrypted === "string" ? decrypted : null;
 	} catch {
 		return null;
@@ -86,8 +84,7 @@ export async function encryptPairVault(
 	pair: KeyPair,
 	passwordStr: string,
 ): Promise<string> {
-	// Encrypt the JSON-stringified pair using the user's plaintext password
-	const encrypted = await SEA.encrypt(pair, passwordStr);
+	const encrypted = await Zen.encrypt(pair, passwordStr);
 	return encrypted;
 }
 
@@ -96,7 +93,7 @@ export async function decryptPairVault(
 	passwordStr: string,
 ): Promise<KeyPair | null> {
 	try {
-		const decrypted = await SEA.decrypt(encryptedBlob, passwordStr);
+		const decrypted = await Zen.decrypt(encryptedBlob, passwordStr);
 		return decrypted ? (decrypted as KeyPair) : null;
 	} catch {
 		return null;

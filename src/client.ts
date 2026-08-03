@@ -39,7 +39,7 @@ export class TuneCampChatClient {
 		this.token = token;
 		this.instanceName =
 			customInstanceName || extractInstanceName(this.serverUrl);
-		this.keyPair = { pub: "", priv: "", epub: "", epriv: "" };
+		this.keyPair = { pub: "", priv: "" };
 	}
 
 	public async initKeyPair(existingPair?: KeyPair) {
@@ -279,7 +279,7 @@ export class TuneCampChatClient {
 				this.sendJson({
 					type: "auth",
 					token: this.token,
-					pubkey: this.keyPair.pub, // using Zen SEA pubkey!
+					pubkey: this.keyPair.pub,
 				});
 			};
 
