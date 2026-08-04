@@ -19,6 +19,17 @@ export interface ChatMessage {
 	to?: string;
 	system?: boolean;
 	instance?: string;
+	roomId?: number;
+	roomGlobalId?: string;
+}
+
+export interface RoomInfo {
+	id: number;
+	globalId: string;
+	name: string;
+	description: string | null;
+	is_private: boolean;
+	member_count: number;
 }
 
 export type ChatStatus = "offline" | "connecting" | "online";

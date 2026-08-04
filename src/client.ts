@@ -5,6 +5,7 @@ import {
 	type ChatMessage,
 	type ChatStatus,
 	type PeerInfo,
+	type RoomInfo,
 	type KeyPair,
 	type MessageHandler,
 	type PeersHandler,
@@ -271,6 +272,16 @@ export class TuneCampChatClient {
 							instance: msg.instance || this.instanceName,
 						});
 					}
+				} else if (msg.type === "room_chat") {
+					this.notifyMessage({
+						from: msg.from,
+						text: msg.text,
+						ts: msg.ts || Date.now(),
+						lobby: false,
+						roomId: msg.roomId,
+						roomGlobalId: msg.roomGlobalId,
+						instance: msg.instance || this.instanceName,
+					});
 				}
 			};
 
@@ -322,10 +333,8 @@ export class TuneCampChatClient {
 	public async fetchHistory(): Promise<ChatMessage[]> {
 		if (!this.serverUrl) return [];
 		try {
-			const headers: Record<string, string> = {};
-			if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
 			const res = await fetch(`${this.serverUrl}/api/chat/history`, {
-				headers,
+				headers: this.authHeaders(),
 			});
 			if (res.ok) {
 				const data = (await res.json()) as any;
@@ -366,9 +375,9 @@ export class TuneCampChatClient {
 	public async fetchPeers(): Promise<PeerInfo[]> {
 		if (!this.serverUrl) return [];
 		try {
-			const headers: Record<string, string> = {};
-			if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
-			const res = await fetch(`${this.serverUrl}/api/chat/peers`, { headers });
+			const res = await fetch(`${this.serverUrl}/api/chat/peers`, {
+				headers: this.authHeaders(),
+			});
 			if (res.ok) {
 				const data = (await res.json()) as any;
 				const parsedClients = Array.isArray(data.clients)
@@ -518,6 +527,143 @@ export class TuneCampChatClient {
 			url += `?token=${encodeURIComponent(this.token)}`;
 		}
 		return url;
+	}
+
+	// --- Rooms -------------------------------------------------------------
+	// Rooms are addressed by the instance-local numeric id the server assigns.
+	// Cross-instance routing is the server's job (global_id), not the client's.
+
+	public joinRoom(roomId: number): boolean {
+		if (!roomId || this.ws?.readyState !== WebSocket.OPEN) return false;
+		this.sendJson({ type: "room_join", roomId });
+		return true;
+	}
+
+	public leaveRoom(roomId: number): boolean {
+		if (!roomId || this.ws?.readyState !== WebSocket.OPEN) return false;
+		this.sendJson({ type: "room_leave", roomId });
+		return true;
+	}
+
+	public sendRoomMessage(roomId: number, text: string): boolean {
+		const clean = String(text ?? "").trim();
+		if (!roomId || !clean || this.ws?.readyState !== WebSocket.OPEN)
+			return false;
+		this.sendJson({ type: "room_chat", roomId, text: clean });
+		this.notifyMessage({
+			from: this.username,
+			text: clean,
+			ts: Date.now(),
+			self: true,
+			lobby: false,
+			roomId,
+			instance: this.instanceName,
+		});
+		return true;
+	}
+
+	public async fetchRooms(): Promise<RoomInfo[]> {
+		if (!this.serverUrl) return [];
+		try {
+			const res = await fetch(`${this.serverUrl}/api/chat/rooms`, {
+				headers: this.authHeaders(),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as any;
+				return Array.isArray(data.rooms) ? (data.rooms as RoomInfo[]) : [];
+			}
+		} catch {
+			/* ignore */
+		}
+		return [];
+	}
+
+	public async createRoom(
+		name: string,
+		description?: string,
+		isPrivate = false,
+	): Promise<RoomInfo | null> {
+		if (!this.serverUrl || !name?.trim()) return null;
+		try {
+			const res = await fetch(`${this.serverUrl}/api/chat/rooms`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...this.authHeaders() },
+				body: JSON.stringify({
+					name,
+					description: description ?? null,
+					is_private: isPrivate,
+				}),
+			});
+			if (res.ok) return (await res.json()) as RoomInfo;
+		} catch {
+			/* ignore */
+		}
+		return null;
+	}
+
+	public async fetchRoomHistory(
+		roomId: number,
+		limit = 100,
+	): Promise<ChatMessage[]> {
+		if (!this.serverUrl || !roomId) return [];
+		try {
+			const res = await fetch(
+				`${this.serverUrl}/api/chat/rooms/${roomId}/messages?limit=${limit}`,
+				{ headers: this.authHeaders() },
+			);
+			if (res.ok) {
+				const data = (await res.json()) as any;
+				const rows = Array.isArray(data.messages) ? data.messages : [];
+				return rows.map((m: any) => ({
+					from: m.username || m.from || "Room",
+					text: m.message || m.text || "",
+					ts: m.created_at || m.ts || Date.now(),
+					lobby: false,
+					roomId,
+					instance: m.instance || this.instanceName,
+				}));
+			}
+		} catch {
+			/* ignore */
+		}
+		return [];
+	}
+
+	public async fetchRoomMembers(roomId: number): Promise<string[]> {
+		if (!this.serverUrl || !roomId) return [];
+		try {
+			const res = await fetch(
+				`${this.serverUrl}/api/chat/rooms/${roomId}/members`,
+				{ headers: this.authHeaders() },
+			);
+			if (res.ok) {
+				const data = (await res.json()) as any;
+				return Array.isArray(data.members) ? data.members : [];
+			}
+		} catch {
+			/* ignore */
+		}
+		return [];
+	}
+
+	public async deleteRoom(roomId: number): Promise<boolean> {
+		if (!this.serverUrl || !roomId) return false;
+		try {
+			const res = await fetch(`${this.serverUrl}/api/chat/rooms/${roomId}`, {
+				method: "DELETE",
+				headers: this.authHeaders(),
+			});
+			return res.ok;
+		} catch {
+			/* ignore */
+		}
+		return false;
+	}
+
+	private authHeaders(): Record<string, string> {
+		const headers: Record<string, string> = {};
+		if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+		return headers;
 	}
 
 	private sendJson(data: any): void {
