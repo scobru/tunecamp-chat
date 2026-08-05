@@ -29,6 +29,16 @@ export async function generateKeyPair(): Promise<KeyPair> {
 	return pair as KeyPair;
 }
 
+/**
+ * @deprecated Chat E2EE keys off the account's Zen identity now: generate a
+ * random pair with `generateKeyPair()`, seal it with `encryptPairVault()` under
+ * the user's password and store it server-side via POST /api/auth/zen/keys.
+ *
+ * A password-derived pair ties the identity to the password — changing the
+ * password silently becomes a different person — and gives the recipient no way
+ * to check the key belongs to the account. Kept only so existing sessions can
+ * still read their cached pair while migrating.
+ */
 export async function deriveKeyPairFromPassword(
 	username: string,
 	password: string,
@@ -39,15 +49,6 @@ export async function deriveKeyPairFromPassword(
 		.join("");
 	const pair = await Zen.pair({ seed: seedHex });
 	return pair as KeyPair;
-}
-
-// ponytail: UNSAFE — deriving a private key from a public zenPubKey is insecure.
-// Anyone can recompute the same pair, enabling full impersonation.
-// Remove this stub when FASE 2 introduces a real non-public secret source.
-export async function deriveKeyPairFromZenPubKey(
-	_zenPubKey: string,
-): Promise<KeyPair> {
-	throw new Error("deriveKeyPairFromZenPubKey is not implemented safely yet");
 }
 
 export async function encryptFor(

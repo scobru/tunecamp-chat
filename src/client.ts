@@ -21,6 +21,7 @@ export class TuneCampChatClient {
 	private status: ChatStatus = "offline";
 	private keyPair: KeyPair;
 	private peerKeys: Map<string, string> = new Map();
+	private peerKeySources: Map<string, "identity" | "session"> = new Map();
 	private peers: PeerInfo[] = [];
 	private messages: ChatMessage[] = [];
 	private username = "";
@@ -70,6 +71,17 @@ export class TuneCampChatClient {
 		return this.keyPair;
 	}
 
+	/**
+	 * Where a peer's key came from: `identity` is bound to their account and the
+	 * same on every instance, `session` is trust-on-first-use from a live socket.
+	 * `undefined` means we have no key for them yet.
+	 */
+	public getPeerKeySource(
+		username: string,
+	): "identity" | "session" | undefined {
+		return this.peerKeySources.get(username);
+	}
+
 	public getStatus(): ChatStatus {
 		return this.status;
 	}
@@ -115,6 +127,14 @@ export class TuneCampChatClient {
 				const data = (await res.json()) as any;
 				if (data.pubkey) {
 					this.peerKeys.set(cacheKey, data.pubkey);
+					// `identity` keys are bound to the account and identical on every
+					// instance, so the user can check one out of band. `session` keys
+					// are whatever a socket announced — remember which we got so the
+					// UI can say so instead of implying both are equally trusted.
+					this.peerKeySources.set(
+						cacheKey,
+						data.source === "identity" ? "identity" : "session",
+					);
 					return data.pubkey;
 				}
 			}
@@ -212,7 +232,13 @@ export class TuneCampChatClient {
 					this.fetchPeers();
 				} else if (msg.type === "pubkey") {
 					if (msg.from && msg.pubkey) {
-						this.peerKeys.set(msg.from, msg.pubkey);
+						// A socket-announced key must never replace one we resolved
+						// from the account's Zen identity: that would let the server
+						// downgrade a verifiable key to one it just made up.
+						if (this.peerKeySources.get(msg.from) !== "identity") {
+							this.peerKeys.set(msg.from, msg.pubkey);
+							this.peerKeySources.set(msg.from, "session");
+						}
 						if (!this.peers.some((p) => p.username === msg.from)) {
 							this.setPeersList([
 								...this.peers,
@@ -298,6 +324,7 @@ export class TuneCampChatClient {
 				this.setStatus("offline");
 				this.ws = null;
 				this.peerKeys.clear();
+				this.peerKeySources.clear();
 				this.setPeersList([]);
 				if (!this.closedByUs) {
 					this.reconnectTimer = setTimeout(() => this.connect(), 5000);

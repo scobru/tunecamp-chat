@@ -1,6 +1,6 @@
 {
   "name": "@tunecamp/chat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Essential, lightweight E2EE chat client and React hook for the TuneCamp ecosystem.",
   "main": "src/index.ts",
   "module": "src/index.ts",
