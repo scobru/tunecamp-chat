@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { TuneCampChatClient } from './client.js';
 import { formatUsernameWithInstance } from './types.js';
-import type { ChatMessage, ChatStatus, PeerInfo, ChatClientOptions } from './types.js';
+import type { ChatMessage, ChatStatus, PeerInfo, ChatClientOptions, KeyChangeEvent } from './types.js';
 
 export function useTuneCampChat(options: ChatClientOptions, activePeer?: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -10,6 +10,9 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [username, setUsername] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  // Peers whose key stopped matching the pinned one, keyed by peer id. DMs to
+  // them are blocked until the user confirms the new fingerprint.
+  const [keyChanges, setKeyChanges] = useState<Record<string, KeyChangeEvent>>({});
 
   const activePeerRef = useRef(activePeer);
   useEffect(() => {
@@ -40,6 +43,10 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
       setPeers(p);
     });
 
+    const unsubKeyChange = client.onKeyChange((event) => {
+      setKeyChanges((prev) => ({ ...prev, [event.peerId]: event }));
+    });
+
     const unsubMsg = client.onMessage((msg) => {
       setMessages([...client.getMessages()]);
       if (!msg.lobby && msg.from && msg.from !== activePeerRef.current && !msg.self) {
@@ -57,6 +64,7 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
     return () => {
       unsubStatus();
       unsubPeers();
+      unsubKeyChange();
       unsubMsg();
       client.disconnect();
       clientRef.current = null;
@@ -73,6 +81,24 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
 
   const clearUnread = useCallback((peer: string) => {
     setUnreadCounts((prev) => ({ ...prev, [peer]: 0 }));
+  }, []);
+
+  /**
+   * Re-pin a peer to the key they now offer. Only call this from an explicit
+   * user action taken after checking the fingerprint out of band.
+   */
+  const acceptKeyChange = useCallback((peerId: string) => {
+    if (!clientRef.current?.acceptPeerKeyChange(peerId)) return false;
+    setKeyChanges((prev) => {
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+    return true;
+  }, []);
+
+  const getPeerFingerprint = useCallback((peerId: string) => {
+    return clientRef.current?.getPeerFingerprint(peerId);
   }, []);
 
   const formatUser = useCallback((user: string, instance?: string) => {
@@ -102,6 +128,9 @@ export function useTuneCampChat(options: ChatClientOptions, activePeer?: string)
     username,
     isAdmin,
     peers,
+    keyChanges,
+    acceptKeyChange,
+    getPeerFingerprint,
     unreadCounts,
     clearUnread,
     sendMessage,

@@ -47,6 +47,28 @@ export type MessageHandler = (msg: ChatMessage) => void;
 export type PeersHandler = (peers: PeerInfo[]) => void;
 export type StatusHandler = (status: ChatStatus) => void;
 
+/**
+ * Where pinned peer fingerprints live between sessions. The default uses
+ * localStorage when it exists and falls back to memory, so the library keeps
+ * working in Node and Electron without dragging in a storage dependency.
+ */
+export interface KeyPinStore {
+	get(peerId: string): string | null;
+	set(peerId: string, fingerprint: string): void;
+	delete(peerId: string): void;
+}
+
+export interface KeyChangeEvent {
+	/** Peer as addressed in chat: `user` locally, `user@instance` remotely. */
+	peerId: string;
+	/** Fingerprint this client pinned the first time it saw this peer. */
+	pinned: string;
+	/** Fingerprint of the key just offered in its place. */
+	offered: string;
+}
+
+export type KeyChangeHandler = (event: KeyChangeEvent) => void;
+
 export interface RtcSignalMessage {
 	from: string;
 	fromSessionId?: string;

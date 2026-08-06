@@ -1,4 +1,9 @@
-import { generateKeyPair, encryptFor, decryptFrom } from "./crypto.js";
+import {
+	generateKeyPair,
+	encryptFor,
+	decryptFrom,
+	keyFingerprint,
+} from "./crypto.js";
 import {
 	extractInstanceName,
 	formatUsernameWithInstance,
@@ -7,11 +12,38 @@ import {
 	type PeerInfo,
 	type RoomInfo,
 	type KeyPair,
+	type KeyPinStore,
+	type KeyChangeEvent,
+	type KeyChangeHandler,
 	type MessageHandler,
 	type PeersHandler,
 	type StatusHandler,
 	type RtcSignalHandler,
 } from "./types.js";
+
+const PIN_STORAGE_PREFIX = "tunecamp_chat_pin_";
+
+function defaultPinStore(): KeyPinStore {
+	try {
+		if (typeof localStorage !== "undefined") {
+			return {
+				get: (id) => localStorage.getItem(PIN_STORAGE_PREFIX + id),
+				set: (id, fp) => localStorage.setItem(PIN_STORAGE_PREFIX + id, fp),
+				delete: (id) => localStorage.removeItem(PIN_STORAGE_PREFIX + id),
+			};
+		}
+	} catch {
+		/* private browsing or a locked-down origin — fall through to memory */
+	}
+	// Memory-only pins still catch a key swapping mid-session; they just can't
+	// catch one that happens between runs.
+	const mem = new Map<string, string>();
+	return {
+		get: (id) => mem.get(id) ?? null,
+		set: (id, fp) => void mem.set(id, fp),
+		delete: (id) => void mem.delete(id),
+	};
+}
 
 export class TuneCampChatClient {
 	private serverUrl: string;
@@ -22,6 +54,13 @@ export class TuneCampChatClient {
 	private keyPair: KeyPair;
 	private peerKeys: Map<string, string> = new Map();
 	private peerKeySources: Map<string, "identity" | "session"> = new Map();
+	private peerFingerprints: Map<string, string> = new Map();
+	private pinStore: KeyPinStore;
+	/** Keys refused because they contradict a pin, awaiting the user's verdict. */
+	private pendingKeyChanges: Map<
+		string,
+		KeyChangeEvent & { pubkey: string; source: "identity" | "session" }
+	> = new Map();
 	private peers: PeerInfo[] = [];
 	private messages: ChatMessage[] = [];
 	private username = "";
@@ -31,17 +70,24 @@ export class TuneCampChatClient {
 	private peersListeners: Set<PeersHandler> = new Set();
 	private statusListeners: Set<StatusHandler> = new Set();
 	private rtcSignalListeners: Set<RtcSignalHandler> = new Set();
+	private keyChangeListeners: Set<KeyChangeHandler> = new Set();
 
 	private reconnectTimer: any = null;
 	private pollTimer: any = null;
 	private closedByUs = false;
 
-	constructor(serverUrl: string, token?: string, customInstanceName?: string) {
+	constructor(
+		serverUrl: string,
+		token?: string,
+		customInstanceName?: string,
+		pinStore?: KeyPinStore,
+	) {
 		this.serverUrl = serverUrl.replace(/\/$/, "");
 		this.token = token;
 		this.instanceName =
 			customInstanceName || extractInstanceName(this.serverUrl);
 		this.keyPair = { pub: "", priv: "" };
+		this.pinStore = pinStore ?? defaultPinStore();
 	}
 
 	public async initKeyPair(existingPair?: KeyPair) {
@@ -80,6 +126,86 @@ export class TuneCampChatClient {
 		username: string,
 	): "identity" | "session" | undefined {
 		return this.peerKeySources.get(username);
+	}
+
+	/**
+	 * Install a peer's key, subject to trust-on-first-use pinning. Returns false
+	 * when the key is refused.
+	 *
+	 * The first key seen for a peer is pinned. A later key with a different
+	 * fingerprint is quarantined rather than used: the server chooses which key it
+	 * hands out, so a silent substitution is indistinguishable from a wiretap.
+	 * Only the user, having compared the new fingerprint out of band, can clear it
+	 * via `acceptPeerKeyChange`.
+	 */
+	private async installPeerKey(
+		peerId: string,
+		pubkey: string,
+		source: "identity" | "session",
+	): Promise<boolean> {
+		// A key merely announced over a socket must never displace one resolved
+		// from the account's Zen identity — that is a downgrade to an
+		// unverifiable key, and the server can trigger it at will.
+		if (source === "session" && this.peerKeySources.get(peerId) === "identity")
+			return false;
+
+		const offered = await keyFingerprint(pubkey);
+		const pinned = this.pinStore.get(peerId);
+
+		if (pinned && pinned !== offered) {
+			this.pendingKeyChanges.set(peerId, {
+				peerId,
+				pinned,
+				offered,
+				pubkey,
+				source,
+			});
+			this.keyChangeListeners.forEach((fn) =>
+				fn({ peerId, pinned, offered }),
+			);
+			return false;
+		}
+
+		if (!pinned) this.pinStore.set(peerId, offered);
+		this.pendingKeyChanges.delete(peerId);
+		this.peerKeys.set(peerId, pubkey);
+		this.peerKeySources.set(peerId, source);
+		this.peerFingerprints.set(peerId, offered);
+		return true;
+	}
+
+	/** Fingerprint in use for a peer, for the user to read out of band. */
+	public getPeerFingerprint(peerId: string): string | undefined {
+		return this.peerFingerprints.get(peerId);
+	}
+
+	/** Set when this peer offered a key that contradicts the pinned one. */
+	public getPendingKeyChange(peerId: string): KeyChangeEvent | undefined {
+		const pending = this.pendingKeyChanges.get(peerId);
+		return pending
+			? { peerId: pending.peerId, pinned: pending.pinned, offered: pending.offered }
+			: undefined;
+	}
+
+	/**
+	 * Re-pin a peer to the key they now offer. Call this only on an explicit user
+	 * action taken after comparing fingerprints over a channel this server does
+	 * not control — clicking it away on the server's say-so defeats the pin.
+	 */
+	public acceptPeerKeyChange(peerId: string): boolean {
+		const pending = this.pendingKeyChanges.get(peerId);
+		if (!pending) return false;
+		this.pinStore.set(peerId, pending.offered);
+		this.pendingKeyChanges.delete(peerId);
+		this.peerKeys.set(peerId, pending.pubkey);
+		this.peerKeySources.set(peerId, pending.source);
+		this.peerFingerprints.set(peerId, pending.offered);
+		return true;
+	}
+
+	public onKeyChange(handler: KeyChangeHandler): () => void {
+		this.keyChangeListeners.add(handler);
+		return () => this.keyChangeListeners.delete(handler);
 	}
 
 	public getStatus(): ChatStatus {
@@ -126,16 +252,16 @@ export class TuneCampChatClient {
 			if (res.ok) {
 				const data = (await res.json()) as any;
 				if (data.pubkey) {
-					this.peerKeys.set(cacheKey, data.pubkey);
 					// `identity` keys are bound to the account and identical on every
 					// instance, so the user can check one out of band. `session` keys
 					// are whatever a socket announced — remember which we got so the
 					// UI can say so instead of implying both are equally trusted.
-					this.peerKeySources.set(
+					const accepted = await this.installPeerKey(
 						cacheKey,
+						data.pubkey,
 						data.source === "identity" ? "identity" : "session",
 					);
-					return data.pubkey;
+					return accepted ? data.pubkey : undefined;
 				}
 			}
 		} catch {
@@ -232,13 +358,7 @@ export class TuneCampChatClient {
 					this.fetchPeers();
 				} else if (msg.type === "pubkey") {
 					if (msg.from && msg.pubkey) {
-						// A socket-announced key must never replace one we resolved
-						// from the account's Zen identity: that would let the server
-						// downgrade a verifiable key to one it just made up.
-						if (this.peerKeySources.get(msg.from) !== "identity") {
-							this.peerKeys.set(msg.from, msg.pubkey);
-							this.peerKeySources.set(msg.from, "session");
-						}
+						await this.installPeerKey(msg.from, msg.pubkey, "session");
 						if (!this.peers.some((p) => p.username === msg.from)) {
 							this.setPeersList([
 								...this.peers,
@@ -325,6 +445,9 @@ export class TuneCampChatClient {
 				this.ws = null;
 				this.peerKeys.clear();
 				this.peerKeySources.clear();
+				this.peerFingerprints.clear();
+				// pendingKeyChanges deliberately survives: a key-change warning must
+				// not be cleared by a reconnect the server can cause at will.
 				this.setPeersList([]);
 				if (!this.closedByUs) {
 					this.reconnectTimer = setTimeout(() => this.connect(), 5000);
@@ -438,23 +561,41 @@ export class TuneCampChatClient {
 		let isE2e = false;
 
 		if (to) {
-			if (to.includes("@")) {
-				const [remoteUsername, remoteInstance] = to.split("@");
-				const recipientKey = await this.ensurePeerKey(
-					remoteUsername,
-					remoteInstance,
-				);
-				if (recipientKey) {
-					payload = await encryptFor(cleanText, recipientKey, this.keyPair);
-					isE2e = true;
-				}
-			} else {
-				const recipientKey = this.peerKeys.get(to);
-				if (recipientKey) {
-					payload = await encryptFor(cleanText, recipientKey, this.keyPair);
-					isE2e = true;
+			// `ensurePeerKey` caches under `user@instance`, which is what `to`
+			// already is for a remote peer, so both paths share one pin id.
+			let recipientKey: string | undefined;
+			if (!this.pendingKeyChanges.has(to)) {
+				if (to.includes("@")) {
+					const [remoteUsername, remoteInstance] = to.split("@");
+					recipientKey = await this.ensurePeerKey(
+						remoteUsername,
+						remoteInstance,
+					);
+				} else {
+					recipientKey = this.peerKeys.get(to);
 				}
 			}
+
+			if (!recipientKey) {
+				// A DM with no usable key used to go out in the clear, which the
+				// sender had no way to notice. Refusing is the only outcome that
+				// can't be provoked by the server simply withholding a key.
+				const pending = this.pendingKeyChanges.get(to);
+				this.notifyMessage({
+					from: "System",
+					text: pending
+						? `${to}'s encryption key changed (${pending.pinned} → ${pending.offered}). Message not sent. Verify the new fingerprint with them over a channel this server doesn't control, then accept the change.`
+						: `No encryption key for ${to} yet — message not sent rather than sent unencrypted.`,
+					ts: Date.now(),
+					lobby: false,
+					system: true,
+					to,
+				});
+				return false;
+			}
+
+			payload = await encryptFor(cleanText, recipientKey, this.keyPair);
+			isE2e = true;
 		}
 
 		this.sendJson({ type: "chat", to, text: payload });
