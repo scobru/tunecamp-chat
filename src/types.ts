@@ -29,6 +29,10 @@ export interface RoomInfo {
 	name: string;
 	description: string | null;
 	is_private: boolean;
+	/** Whoever created the room. Only they can delete it, so a UI needs this
+	 * to decide whether offering Delete makes sense. Absent on instances
+	 * older than 5.5.0, which did not report it. */
+	created_by?: string;
 	member_count: number;
 }
 

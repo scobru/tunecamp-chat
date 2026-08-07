@@ -2,6 +2,12 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.2.0] - 2026-08-07
+
+### Added
+
+- `RoomInfo.created_by`, reported by instances from 5.5.0 on. `deleteRoom` is creator-only, so a client needs this to decide whether offering Delete makes sense at all; it is optional because older instances do not send it.
+
 ## [2.1.0] - 2026-08-07
 
 ### Added
