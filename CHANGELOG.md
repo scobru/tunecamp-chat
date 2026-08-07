@@ -2,6 +2,17 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.1.0] - 2026-08-07
+
+### Added
+
+- **`useTuneCampChat` exposes rooms.** The client has carried the full room API since rooms landed server-side — `joinRoom`, `leaveRoom`, `sendRoomMessage`, `fetchRooms`, `createRoom`, `deleteRoom`, `fetchRoomHistory` — but the hook exposed none of it, so every React consumer was stuck with lobby and DMs unless it reached past the hook into `client`. The hook now takes an optional `activeRoomId` and returns `rooms`, `refreshRooms`, `createRoom`, `deleteRoom`, `joinRoom`, `leaveRoom`, `sendRoomMessage`, `roomUnreadCounts` and `clearRoomUnread`. Selecting a room subscribes the socket and pulls its backlog; the room list is refreshed whenever the connection comes up, since a room created while offline is otherwise invisible.
+- `fetchRoomHistory` merges the backlog into the same store the socket feeds, so `getMessages()` is one ordered history rather than something the consumer has to stitch together. Rows arrive newest first and are reversed on the way in. Identity for de-duplication is room + sender + timestamp, not the timestamp alone the lobby merge uses, because two rooms can legitimately carry the same one.
+
+### Fixed
+
+- **A room message no longer counts as an unread DM.** Room traffic carries `lobby: false` exactly like a direct message, so the unread bookkeeping attributed it to whoever spoke in the room. Room messages are now routed by `roomId` first and counted in `roomUnreadCounts`. For the same reason, the DM view filters out messages that carry a `roomId`.
+
 ## [2.0.0] - 2026-08-06
 
 Breaking: the vault write format changed and `sendMessage` can now refuse to

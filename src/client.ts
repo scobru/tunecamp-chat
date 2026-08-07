@@ -769,6 +769,12 @@ export class TuneCampChatClient {
 		return null;
 	}
 
+	/**
+	 * Room backlog, merged into the same store the socket feeds so a consumer
+	 * reading `getMessages()` sees one ordered history instead of having to
+	 * stitch REST and socket traffic together itself. The server returns newest
+	 * first; the store is oldest first, so the rows are reversed on the way in.
+	 */
 	public async fetchRoomHistory(
 		roomId: number,
 		limit = 100,
@@ -782,19 +788,41 @@ export class TuneCampChatClient {
 			if (res.ok) {
 				const data = (await res.json()) as any;
 				const rows = Array.isArray(data.messages) ? data.messages : [];
-				return rows.map((m: any) => ({
-					from: m.username || m.from || "Room",
-					text: m.message || m.text || "",
-					ts: m.created_at || m.ts || Date.now(),
-					lobby: false,
-					roomId,
-					instance: m.instance || this.instanceName,
-				}));
+				const formatted: ChatMessage[] = rows
+					.map((m: any) => ({
+						from: m.username || m.from || "Room",
+						text: m.message || m.text || "",
+						ts: m.created_at || m.ts || Date.now(),
+						lobby: false,
+						roomId,
+						instance: m.instance || this.instanceName,
+					}))
+					.reverse();
+				this.mergeRoomHistory(formatted);
+				return formatted;
 			}
 		} catch {
 			/* ignore */
 		}
 		return [];
+	}
+
+	/**
+	 * Two rooms can legitimately carry the same timestamp, so identity here is
+	 * room + sender + ts rather than the ts alone the lobby merge relies on.
+	 */
+	private mergeRoomHistory(history: ChatMessage[]) {
+		if (history.length === 0) return;
+		const seen = new Set(
+			this.messages.map((m) => `${m.roomId ?? ""}|${m.from}|${m.ts}`),
+		);
+		const newItems = history.filter(
+			(m) => !seen.has(`${m.roomId ?? ""}|${m.from}|${m.ts}`),
+		);
+		if (newItems.length === 0) return;
+		this.messages = [...newItems, ...this.messages].slice(-200);
+		const last = this.messages[this.messages.length - 1];
+		for (const fn of this.messageListeners) fn(last);
 	}
 
 	public async fetchRoomMembers(roomId: number): Promise<string[]> {
